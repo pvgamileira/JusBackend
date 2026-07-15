@@ -144,3 +144,7 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# Local GitHub CLI binary
+gh
+
