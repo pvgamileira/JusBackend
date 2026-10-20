@@ -1,52 +1,58 @@
-# JusBackend ⚖️
+# JusBackend ⚖️ — API RESTful Jurídica (FastAPI + Supabase)
 
-Uma API REST desenvolvida em **FastAPI** e integrada ao **Supabase** para gerenciamento e cadastro de advogados. O projeto conta com um sistema de autenticação (via Supabase Auth Admin) e persistência de dados.
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-Auth%20%26%20PostgreSQL-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
+![Pydantic](https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white)
 
-## 🚀 Tecnologias Utilizadas
+API RESTful desenvolvida **100% à mão em Python** com **FastAPI**, **Pydantic** e **Supabase** para gerenciamento cadastral e autenticação de advogados.
 
-- **FastAPI**: Framework moderno, rápido (de alto desempenho) e fácil de usar para construir APIs com Python.
-- **Supabase**: Backend-as-a-Service (BaaS) utilizado para o banco de dados PostgreSQL e gerenciamento de autenticação.
-- **Pydantic**: Validação de dados e definição de esquemas.
-- **Uvicorn**: Servidor ASGI rápido para rodar a aplicação.
-
-## 📂 Estrutura do Projeto
-
-* `main.py`: Arquivo principal contendo a definição das rotas e inicialização do FastAPI.
-* `.env`: Configurações de credenciais do Supabase (ignorado pelo Git por segurança).
-* `.gitignore`: Arquivo para evitar o versionamento de arquivos locais desnecessários ou sensíveis.
-
-## 🛣️ Endpoints da API
-
-A API disponibiliza as seguintes rotas:
-
-| Método | Rota | Descrição |
-| :--- | :--- | :--- |
-| **GET** | `/` | Rota principal de boas-vindas. |
-| **GET** | `/advogados` | Lista todos os advogados cadastrados no banco de dados. |
-| **POST** | `/advogados/` | Cadastra um novo advogado. Cria o usuário no Supabase Auth e insere os dados de perfil na tabela `advogados`. |
-| **PUT** | `/advogados/{id}` | Atualiza parcialmente os dados de um advogado existente com base no seu UUID. |
-| **DELETE** | `/advogados/{id}` | Remove um advogado da tabela `advogados` e também exclui o seu usuário correspondente do Supabase Auth. |
+O objetivo central deste projeto foi consolidar na prática os fundamentos de arquitetura Back-End REST, validação de esquemas de entrada/saída, tratamento de códigos de status HTTP (`200`, `201`, `404`) e sincronização transacional entre o **Supabase Auth Admin (`UUID`)** e a tabela relacional `public.advogados` no **PostgreSQL**.
 
 ---
 
-## 🛠️ Como Executar o Projeto
+## ⚙️ Arquitetura e Destaques Técnicos
 
-1. **Instale as dependências** no seu ambiente virtual:
+- **Sincronização Identidade ↔ Banco Relacional**:
+  - No `POST /advogados/`, a API provisiona primeiro a credencial de acesso via `supabase.auth.admin.create_user()`, captura o `UUID` gerado (`resposta_auth.user.id`) e o utiliza como chave primária/estrangeira na tabela `advogados`.
+  - No `DELETE /advogados/{id}`, realiza a exclusão combinada tanto do registro relacional quanto da conta de autenticação no Supabase Auth.
+- **Atualização Parcial Segura (`PUT /advogados/{id}`)**:
+  - Uso de `dados.model_dump(exclude_unset=True)` do Pydantic v2 para atualizar no PostgreSQL apenas os campos efetivamente enviados na requisição, evitando sobrescrever colunas existentes com `NULL`.
+- **Busca por ID e Filtragem por OAB**:
+  - Consulta individual (`GET /advogados/{id}`) com tratamento explícito de erro `404 Not Found` via `HTTPException` e busca filtrada por número/UF de OAB (`GET /advogados?num_oab=SP`).
+
+---
+
+## 🛣️ Endpoints da API
+
+| Método | Rota | Descrição |
+| :--- | :--- | :--- |
+| **GET** | `/` | Healthcheck da API Jurídica. |
+| **GET** | `/advogados` | Lista advogados cadastrados (aceita query param opcional `?num_oab=`). |
+| **GET** | `/advogados/{id}` | Busca um advogado específico pelo seu `UUID` (retorna `404` se inexistente). |
+| **POST** | `/advogados/` | Cria usuário no Supabase Auth Admin e persiste o perfil na tabela `advogados`. |
+| **PUT** | `/advogados/{id}` | Atualiza parcialmente os dados de um advogado existente (`exclude_unset=True`). |
+| **DELETE** | `/advogados/{id}` | Remove o advogado da tabela `advogados` e exclui sua conta no Supabase Auth. |
+
+---
+
+## 🛠️ Como Executar Localmente
+
+1. **Instale as dependências**:
    ```bash
    pip install fastapi uvicorn supabase python-dotenv pydantic
    ```
 
-2. **Configure as variáveis de ambiente**:
-   Crie um arquivo `.env` na raiz do projeto com as seguintes chaves obtidas no painel do seu projeto no Supabase:
+2. **Configure as variáveis de ambiente (`.env`)**:
    ```env
-   SUPABASE_URL=sua_url_do_supabase
-   SUPABASE_KEY=sua_key_service_role_ou_anon_do_supabase
+   SUPABASE_URL=https://seu-projeto.supabase.co
+   SUPABASE_KEY=sua_service_role_key_do_supabase
    ```
 
-3. **Inicie o servidor local**:
+3. **Inicie o servidor ASGI**:
    ```bash
-   .venv/bin/uvicorn main:app --reload
+   uvicorn main:app --reload
    ```
 
-4. **Acesse a documentação interativa**:
-   Abra o seu navegador em [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) para testar os endpoints interativamente através do Swagger UI.
+4. **Documentação Interativa (Swagger UI)**:
+   Acesse `http://127.0.0.1:8000/docs`.

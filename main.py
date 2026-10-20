@@ -1,73 +1,81 @@
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
-from typing import Optional
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from supabase import Client, create_client
-from typing import Optional
 
 
-#=====Criação da classe para cadastro=====
-#=====e identificação de usuário==========
+# ===== Criação da classe para cadastro e identificação de usuário =====
 class NovoAdvogado(BaseModel):
     nome: str
     cpf: str
     telefone: str
     email: str
     num_oab: str
-    senha: str 
+    senha: str
 
-#=====Criação da classe para atualizar advogados deixando a opção deles como optional=====
-#=====para o update não fizer esses dados atualizarem para none===========================
+
+# ===== Criação da classe para atualizar advogados (campos opcionais) =====
 class AtualizarAdvogado(BaseModel):
     nome: Optional[str] = None
     cpf: Optional[str] = None
     telefone: Optional[str] = None
     email: Optional[str] = None
     num_oab: Optional[str] = None
-    
 
-#=====Carregamento do .env e conexão com supabase=====
+
+# ===== Carregamento do .env e conexão com Supabase =====
 load_dotenv()
 
-#=====Colocando as variáveis do .env em variáveis do python=====
-url: str = os.getenv("SUPABASE_URL")
-key: str = os.getenv("SUPABASE_KEY")
-supabase: Client = create_client(url, key)
-supabase.postgrest.auth(key)
+url: str = os.getenv("SUPABASE_URL", "")
+key: str = os.getenv("SUPABASE_KEY", "")
+supabase: Optional[Client] = create_client(url, key) if (url and key) else None
+if supabase and key:
+    supabase.postgrest.auth(key)
 
-# =====Iniciando o FastAPI =====
-app = FastAPI()
+# ===== Iniciando o FastAPI =====
+app = FastAPI(
+    title="JusBackend API",
+    description="API RESTful para gestão e autenticação de advogados integrada ao Supabase Auth & PostgreSQL.",
+    version="1.1.0",
+)
 
-# =====Rota principal =====
+
+# ===== Rota principal =====
 @app.get("/")
 def boas_vindas():
-    status = {"status": "API Jurídica operando com sucesso!"}
-    return status
+    return {"status": "API Jurídica operando com sucesso!"}
 
 
-# =====Rota para listar advogados===== 
-# =====Usando a sintaxe do supabase===== 
-# =====pela primeira vez após leve consulta na DOC=====
+# ===== Rota para listar advogados (com filtro opcional por número/UF da OAB) =====
 @app.get("/advogados")
-def listar_advogados():
-    resposta = {"advogados": supabase.table("advogados").select("*").execute().data}
-    return resposta
+def listar_advogados(num_oab: Optional[str] = Query(default=None, description="Filtrar por número ou UF da OAB")):
+    query = supabase.table("advogados").select("*")
+    if num_oab:
+        query = query.ilike("num_oab", f"%{num_oab}%")
+    dados = query.execute().data
+    return {"advogados": dados, "total": len(dados)}
 
 
+# ===== Rota para buscar um advogado específico por ID (UUID) =====
+@app.get("/advogados/{id}")
+def obter_advogado_por_id(id: str):
+    resultado = supabase.table("advogados").select("*").eq("id", id).execute().data
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Advogado não encontrado.")
+    return {"advogado": resultado[0]}
 
-#=====Rota para criar advogados=====
-#=====uso de create_user do supabase auth admin =====
-#=====criação da inserção do usuário com email e senha =====
-#=====para verificação da tabela auth para bater e enviar os dados =====
-#=====para a tabela advogados=========================================
-@app.post("/advogados/")
+
+# ===== Rota para criar advogados =====
+# Sincroniza o usuário criado no Supabase Auth Admin (UUID) com a tabela public.advogados
+@app.post("/advogados/", status_code=201)
 def criar_advogado(dados: NovoAdvogado):
     resposta_auth = supabase.auth.admin.create_user({
         "email": dados.email,
         "password": dados.senha,
-        "email_confirm": True
+        "email_confirm": True,
     })
     new_id = resposta_auth.user.id
 
@@ -89,26 +97,24 @@ def criar_advogado(dados: NovoAdvogado):
     return criar
 
 
-
-#=====Rota para atualizar advogados===== 
-#=====atualizando somente o que não está===== 
-#=====como optional=None=====================
-#=====Primeiro uso do update entendendo que o 'where' é===== 
-#=====o .eq no final da linha================================
-@app.put('/advogados/{id}')
+# ===== Rota para atualizar advogados parcialmente =====
+@app.put("/advogados/{id}")
 def atualizar_advogado(dados: AtualizarAdvogado, id: str):
-    resposta_update = {
-        f"advogados/{id}": supabase.table("advogados").update(dados.model_dump(exclude_unset=True)).eq('id',id).execute().data
-    }
-    return resposta_update
+    payload = dados.model_dump(exclude_unset=True)
+    atualizado = supabase.table("advogados").update(payload).eq("id", id).execute().data
+    if not atualizado:
+        raise HTTPException(status_code=404, detail="Advogado não encontrado para atualização.")
+    return {f"advogados/{id}": atualizado}
 
 
-@app.delete('/advogados/{id}')
+# ===== Rota para excluir advogado (Banco + Supabase Auth Admin) =====
+@app.delete("/advogados/{id}")
 def deletar_advogado(id: str):
-    resposta_delete = {f"advogados/{id}": supabase.table("advogados").delete().eq('id', id).execute().data}
+    removido = supabase.table("advogados").delete().eq("id", id).execute().data
+    if not removido:
+        raise HTTPException(status_code=404, detail="Advogado não encontrado para exclusão.")
     supabase.auth.admin.delete_user(id)
-    resposta_delete = {
-        'status': "Advogado excluído com sucesso do banco e do sistema de autenticação",
-        'dados_removidos': resposta_delete   
+    return {
+        "status": "Advogado excluído com sucesso do banco e do sistema de autenticação",
+        "dados_removidos": {f"advogados/{id}": removido},
     }
-    return resposta_delete
